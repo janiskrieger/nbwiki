@@ -4,11 +4,11 @@
 	}
 }
 
-http://{$DOMAIN_NAME} {
+http://{$DOMAIN_NAME}:8080 {
     redir https://{host}{uri} permanent
 }
 
-https://{$DOMAIN_NAME} {
+https://{$DOMAIN_NAME}:8443 {
 
     # Reverse proxy to MediaWiki
     reverse_proxy mediawiki:80
