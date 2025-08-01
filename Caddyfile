@@ -1,0 +1,104 @@
+{
+	acme_dns desec {
+		token {$DNS_TOKEN}
+	}
+}
+
+http://{$DOMAIN_NAME} {
+    redir https://{host}{uri} permanent
+}
+
+https://{$DOMAIN_NAME} {
+
+    # Reverse proxy to MediaWiki
+    reverse_proxy mediawiki:80
+    request_body {
+        max_size 10MB
+    }
+    
+    # Enable gzip compression for better performance
+    encode gzip
+    
+    # Block sensitive files and directories
+    @blocked {
+        path /config/* /.env* /composer.* /vendor/* /tests/* /.git* /README* /INSTALL* /UPGRADE* /maintenance/* /serialized/* /cache/*
+    }
+    respond @blocked 403
+
+    # Block MediaWiki sensitive files
+    @mw_sensitive {
+        path *.sql *.sqlite /LocalSettings.php /AdminSettings.php
+    }
+    respond @mw_sensitive 403
+    
+    # Block common attack patterns
+    @attacks {
+        query param=<script param=javascript: param=vbscript: param=onload param=onerror
+        path *../* *.php.* *wp-admin* *wp-content* *xmlrpc.php*
+    }
+    respond @attacks 403
+    
+    # Restrict access to admin areas (adjust path as needed)
+    @admin {
+        path /mw-config/* /maintenance/*
+        not remote_ip {$CADDY_ADMIN_IP_RANGES}
+    }
+    basic_auth @admin {
+        admin {$CADDY_ADMIN_PASSWORD_HASH}
+    }
+    
+    # Security headers
+    header {
+        # Enable HSTS for HTTPS enforcement
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent embedding in frames
+        X-Frame-Options SAMEORIGIN
+        # Prevent content type sniffing
+        X-Content-Type-Options nosniff
+        # XSS Protection
+        X-XSS-Protection "1; mode=block"
+        # Enhanced Content Security Policy
+        Content-Security-Policy "default-src 'self'; img-src 'self' data: *.{$DOMAIN_NAME}; script-src 'self'; style-src 'self'; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self';"
+        # Referrer Policy
+        Referrer-Policy strict-origin-when-cross-origin
+        # Remove server information
+        -Server
+        # Permissions Policy (formerly Feature Policy)
+        Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=()"
+    }
+    
+    # Hide PHP information
+    @php {
+        path *.php
+    }
+    header @php {
+        -X-Powered-By
+        X-Content-Type-Options nosniff
+    }
+    
+    # Cache static assets for better performance
+    @static {
+        path /images/* /skins/* /resources/* *.css *.js *.png *.jpg *.jpeg *.gif *.ico *.svg *.woff *.woff2
+    }
+    header @static {
+        Cache-Control "public, max-age=31536000, immutable"
+        # Security headers for static content
+        X-Content-Type-Options nosniff
+    }
+    
+    # Block PHP execution in user-uploaded directories
+    @uploads_php {
+        path /images/*.php
+    }
+    respond @uploads_php 403
+    
+    # Log security events
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 10MB
+            roll_keep 7
+            roll_keep_for 168h
+        }
+        format json
+    }
+}
